@@ -2,90 +2,70 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-import wave
-import MFCC
-import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
-from sklearn.lda import LDA
 import os
 import pickle
 import re
-
-SAMPLES_DIR = "samples"
-
-
-class features_mapper:
-    def __init__(self, n_clusters, centers):
-        self.k_means = KMeans(n_clusters=n_clusters, max_iter=1, init=centers)
-
-    def map(self, mfcc):
-        self.k_means.fit(mfcc)
-        new_centers = self.k_means.cluster_centers_
-        flat_new_centers = new_centers.flatten()
-        return flat_new_centers
+import mfcc_utils
+import argparse
 
 
-def plot_mfcc(mfcc):
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    x = mfcc[:, 0]
-    y = mfcc[:, 1]
-    points = mfcc[:, 2:4]
-    color = np.sqrt((points ** 2).sum(axis=1)) / np.sqrt(2.0)
-    rgb = plt.get_cmap('jet')(color)
-    ax.scatter(x, y, color=rgb)
-    plt.show()
-    #plt.savefig("out.png", dpi = 72)
+# magic constants
+CENTERS_FILE_NAME = "centers"
+DATA_FILE_NAME = "data"
+LABELS_FILE_NAME = "labels"
 
 
-def produce_mfcc(filename, sz):
-    wav = wave.open(filename, "r")
-    (nchannels, sampwidth, framerate, nframes,
-     comptype, compname) = wav.getparams()
-    #sz = 44100
-    x = np.fromstring(wav.readframes(sz), dtype=np.int16)
-    mfcc = MFCC.extract(x)
-    return mfcc
+def get_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--processes", default=1,
+                        help="number of processes, default=1", type=int)
+    parser.add_argument("-d", "--dir", default="samples",
+                        help="directory with .wav files, default=samples")
+    parser.add_argument("-s", "--sz", default=44100, type=int,
+                        help="specify sz, default=44100")
+    parser.add_argument("-c", "--centers", default=10,
+                        help="number of centers", type=int)
+    args = parser.parse_args()
+    return args
 
 
 def main():
-    sz = 22050
-    # TODO: rewrite lab_extractor
-    lab_extractor = re.compile("(.*)")
+    # parsing arguments
+    args = get_arguments()
+    # reading files and transforming them into mfcc format
+    lab_extractor = re.compile("([^\-]*)\-")
+    file_list = map(lambda x: args.dir + "/" + x, os.listdir(args.dir))
 
-    mfcc_list = []
-    labels = []
-    for filename in os.listdir(SAMPLES_DIR):
-        mfcc = produce_mfcc(SAMPLES_DIR + "/" + filename, sz)
-        mfcc_list.append(mfcc)
-        match = lab_extractor.match(filename)
-        labels.append(match.group(1))
-        try:
-            full_training_sample = \
-                np.vstack([full_training_sample, mfcc])
-        except:
-            full_training_sample = mfcc
+    reader = mfcc_utils.mfcc_reader(lab_extractor,
+                                    args.sz, num_workers=args.processes)
+    mfcc_tuples_list = reader.read_list(file_list)
 
-    k_means = KMeans(n_clusters=10)
+    mfcc_list = map(lambda x: x[0], mfcc_tuples_list)
+    labels = map(lambda x: x[1], mfcc_tuples_list)
+    labels = np.array(labels)
+    full_training_sample = mfcc_utils.to_stack(mfcc_list)
+
+    # learning overall centers
+    k_means = KMeans(n_clusters=args.centers)
     k_means.fit(full_training_sample)
     centers = k_means.cluster_centers_
-    with open("centers", "w") as f:
+    with open(CENTERS_FILE_NAME, "w") as f:
         pickle.dump(centers, f)
 
-    f_mapper = features_mapper(10, centers)
-    for mfcc in mfcc_list:
-        new_line = f_mapper.map(mfcc)
-        try:
-            data = \
-                np.vstack([data, new_line])
-        except:
-            data = new_line
+    # learning new centers for each wav file
+    f_mapper = mfcc_utils.features_mapper(args.centers, centers)
+    features_list = map(f_mapper.map, mfcc_list)
 
-    labels = np.array(labels)
-    model = LDA()
-    # TODO: prepare proper sample before fitting
-    #model.fit(X=data, y=labels)
-    #plot_mfcc(mfcc)
+    # generating training sample
+    data = mfcc_utils.to_stack(features_list)
+
+    # saving everything
+    with open(DATA_FILE_NAME, "w") as f:
+        pickle.dump(data, f)
+
+    with open(LABELS_FILE_NAME, "w") as f:
+        pickle.dump(labels, f)
 
 
 if __name__ == '__main__':
