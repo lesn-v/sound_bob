@@ -46,7 +46,7 @@ class features_mapper:
 def to_stack(data_list):
     for item in data_list:
         try:
-            result = np.vstack([result, data_list])
+            result = np.vstack([result, item])
         except:
             result = item
     return result
