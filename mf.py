@@ -3,9 +3,7 @@
 
 import numpy as np
 from sklearn.cluster import KMeans
-import os
 import pickle
-import re
 import mfcc_utils
 import argparse
 
@@ -34,15 +32,8 @@ def main():
     # parsing arguments
     args = get_arguments()
     # reading files and transforming them into mfcc format
-    lab_extractor = re.compile("([^\-]*)\-")
-    file_list = map(lambda x: args.dir + "/" + x, os.listdir(args.dir))
-
-    reader = mfcc_utils.mfcc_reader(lab_extractor,
-                                    args.sz, num_workers=args.processes)
-    mfcc_tuples_list = reader.read_list(file_list)
-
-    mfcc_list = map(lambda x: x[0], mfcc_tuples_list)
-    labels = map(lambda x: x[1], mfcc_tuples_list)
+    mfcc_list, labels = mfcc_utils.read_files_from_dir(
+        dir_name=args.dir, processes=args.processes, sz=args.sz)
     labels = np.array(labels)
     full_training_sample = mfcc_utils.to_stack(mfcc_list)
 

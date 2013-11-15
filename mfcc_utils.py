@@ -4,6 +4,12 @@ import numpy as np
 import multiprocessing
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
+import re
+import os
+import sys
+
+
+lab_extractor = re.compile("([^\-]*)\-")
 
 
 def unwrap_produce_mfcc(args):
@@ -23,7 +29,11 @@ class mfcc_reader:
         # comptype, compname) = wav.getparams()
         mfcc = MFCC.extract(x)
         match = self.lab_extractor.match(filename)
-        label = match.group(1)
+        try:
+            label = match.group(1)
+        except:
+            label = "unknown"
+            print >> sys.stderr, "unknown labels encountered"
         return (mfcc, label)
 
     def read_list(self, file_list):
@@ -63,3 +73,19 @@ def plot_mfcc(mfcc):
     ax.scatter(x, y, color=rgb)
     plt.show()
     #plt.savefig("out.png", dpi = 72)
+
+
+def get_file_list(dir_name):
+    return map(lambda x: dir_name + "/" + x, os.listdir(dir_name))
+
+
+def read_files_from_dir(dir_name, processes, sz):
+    file_list = get_file_list(dir_name)
+
+    reader = mfcc_reader(lab_extractor,
+                         sz, num_workers=processes)
+    mfcc_tuples_list = reader.read_list(file_list)
+
+    mfcc_list = map(lambda x: x[0], mfcc_tuples_list)
+    labels = map(lambda x: x[1], mfcc_tuples_list)
+    return mfcc_list, labels
